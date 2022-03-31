@@ -1,0 +1,6 @@
+[[runners]]
+  [runners.kubernetes]
+    cpu_limit = "2"
+    memory_limit = "4Gi"
+    helper_cpu_limit = "500m"
+    helper_memory_limit = "100Mi"

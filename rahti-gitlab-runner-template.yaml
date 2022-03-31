@@ -1,0 +1,238 @@
+# Adopted from: https://github.com/RedHatQE/ocp-gitlab-runner 
+# Removed BuildConfig due to lack of full support of multi-stage build
+kind: Template
+apiVersion: template.openshift.io/v1
+metadata:
+  name: rahti-gitlab-runner
+
+parameters:
+- name: NAME
+  displayName: Name
+  required: true
+  value: gitlab-runner
+- name: GITLAB_HOST
+  displayName: Gitlab host
+  description: Host of a Gitlab instance
+  required: true
+- name: GITLAB_RUNNER_VERSION
+  displayName: Gitlab runner version
+  description:
+  required: false
+  value: master
+- name: REGISTRATION_TOKEN
+  displayName: Registration token
+  description: Runner's registration token. Base64 encoded string is expected.
+  required: true
+- name: CONCURRENT
+  displayName: Concurrent
+  description: The maximum number of concurrent CI pods
+  required: true
+  value: "1"
+- name: RUNNER_TAG_LIST
+  displayName: Tag list
+  required: false
+- name: GITLAB_BUILDER_IMAGE
+  displayName: Gitlab builder image
+  description: A default image which will be used in Gitlab CI
+  required: false
+  value: ""
+- name: TLS_CA_CERT
+  displayName: CA certificate
+  description: |
+    A certificate that is used to verify TLS peers when connecting to the GitLab server.
+    Base64 encoded string is expected.
+  required: false
+  value: ""
+- name: TEMPLATE_CONFIG_FILE
+  displayName: Configuration template file
+  description: |
+    A patch for config.toml which will be applied during runner registration. Details in 
+    https://docs.gitlab.com/runner/register/#runners-configuration-template-file
+  required: false
+  value: "[[runners]]"
+- name: RUNNER_IMG
+  displayName: GitLab runner image
+  description: An Image containing the gitlab-runner executable that is used to communicate with GitLab CI.
+  required: true
+  value: "tdeneke/rahti-gitlab-runner:dev"
+- name: HELPER_IMG
+  displayName: GitLab helper image
+  description: An image with a special compilation of GitLab Runner binary. It contains only a subset of available commands, as well as Git, Git LFS, SSL certificates store.
+  required: true
+  value: "tdeneke/rahti-gitlab-helper:dev"
+
+objects:
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+    name: ${NAME}-gitlab-runner-config-map
+    labels:
+      app: ${NAME}
+  data:
+    config.toml: |-
+      concurrent = ${CONCURRENT}
+      check_interval = 30
+      log_level = "info"
+      listen_address = ":9252"
+    config.template.toml: ${TEMPLATE_CONFIG_FILE}
+
+- kind: Secret
+  apiVersion: v1
+  metadata:
+    name: ${NAME}-gitlab-runner-secret
+    labels:
+      app: ${NAME}
+  data:
+    registrationToken: ${REGISTRATION_TOKEN}
+    ${GITLAB_HOST}.crt: ${TLS_CA_CERT}
+  type: Opaque
+
+- kind: ServiceAccount
+  apiVersion: v1
+  metadata:
+    name: gitlab-${NAME}
+    labels:
+      app: ${NAME}
+
+- kind: RoleBinding
+  apiVersion: rbac.authorization.k8s.io/v1
+  metadata:
+    generateName: gitlab-rb-
+    labels:
+      app: ${NAME}
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: edit
+  subjects:
+  - kind: ServiceAccount
+    name: gitlab-${NAME}
+
+- kind: Deployment
+  apiVersion: apps/v1
+  metadata:
+    generateName: ${NAME}-
+    labels:
+      app: ${NAME}
+  spec:
+    revisionHistoryLimit: 2
+    replicas: 1
+    strategy:
+      type: Recreate
+    selector:
+      matchLabels:
+        name: ${NAME}
+    template:
+      metadata:
+        name: ${NAME}
+        labels:
+          name: ${NAME}
+      spec:
+        serviceAccountName: gitlab-${NAME}
+        volumes:
+          - name: data
+            emptyDir: {}
+          - name: gitlab-runner-config
+            configMap:
+              name: ${NAME}-gitlab-runner-config-map
+          - name: gitlab-runner-secret
+            secret:
+              secretName: ${NAME}-gitlab-runner-secret
+        initContainers:
+          - name: gitlab-runner-config
+            image: ${RUNNER_IMG}
+            command:
+              - /bin/sh
+              - -c
+              - |
+                cp /mnt/gitlab-runner-config/config.toml /mnt/data/config.toml
+                if [ -s /mnt/secrets/${GITLAB_HOST}.crt ]; then
+                  mkdir /mnt/data/certs
+                  cp /mnt/secrets/${GITLAB_HOST}.crt /mnt/data/certs
+                fi
+            resources:
+              requests:
+                cpu: 50m
+                memory: 50Mi
+              limits:
+                cpu: 50m
+                memory: 50Mi
+            volumeMounts:
+              - mountPath: /mnt/gitlab-runner-config
+                name: gitlab-runner-config
+              - mountPath: /mnt/data
+                name: data
+              - mountPath: /mnt/secrets
+                name: gitlab-runner-secret
+          - name: gitlab-runner-register
+            image: ${RUNNER_IMG}
+            env:
+              - name: RUNNER_EXECUTOR
+                value: kubernetes
+              - name: REGISTER_LOCKED
+                value: "false"
+              - name: REGISTER_NON_INTERACTIVE
+                value: "true"
+              - name: RUNNER_NAME
+                value: ${NAME}
+              - name: CI_SERVER_URL
+                value: https://${GITLAB_HOST}
+              - name: REGISTRATION_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    key: registrationToken
+                    name: ${NAME}-gitlab-runner-secret
+              - name: RUNNER_TAG_LIST
+                value: ${RUNNER_TAG_LIST}
+              - name: KUBERNETES_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+              - name: KUBERNETES_BUILDER_IMAGE
+                value: ${GITLAB_BUILDER_IMAGE}
+              - name: KUBERNETES_HELPER_IMAGE
+                value: ${HELPER_IMG}
+              - name: TEMPLATE_CONFIG_FILE
+                value: /mnt/gitlab-runner-config/config.template.toml
+            command: 
+              - gitlab-runner
+              - register
+            resources:
+              requests:
+                cpu: 50m
+                memory: 50Mi
+              limits:
+                cpu: 100m
+                memory: 100Mi
+            volumeMounts:
+              - mountPath: /home/gitlab-runner/.gitlab-runner
+                name: data
+              - mountPath: /mnt/gitlab-runner-config
+                name: gitlab-runner-config
+        containers:
+          - name: ${NAME}
+            image: ${RUNNER_IMG}
+            resources:
+              request:
+                cpu: 100m
+                memory: 100Mi
+              limits:
+                cpu: 200m
+                memory: 200Mi
+            volumeMounts:
+              - mountPath: /home/gitlab-runner/.gitlab-runner
+                name: data
+                readOnly: false
+            lifecycle:
+              preStop:
+                exec:
+                  command:
+                    - /bin/bash
+                    - -c
+                    - |
+                      {
+                        gitlab-runner unregister --all-runners
+                        sleep 5
+                      } &>/proc/1/fd/1
