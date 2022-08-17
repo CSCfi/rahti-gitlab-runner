@@ -25,7 +25,7 @@ NOTE: This work has been mostly adopted from: https://github.com/RedHatQE/ocp-gi
 2. Deploy the runner by processing the template:
 ```sh
 oc process -f rahti-gitlab-runner-template.yaml \
--p NAME="some_name" \
+-p NAME="some-name" \
 -p GITLAB_HOST="gitlab.ci.csc.fi" \
 -p REGISTRATION_TOKEN="$(echo -n some_token | base64)" \
 -p GITLAB_RUNNER_VERSION="v14.9.1" \
