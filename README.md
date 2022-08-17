@@ -27,11 +27,13 @@ NOTE: This work has been mostly adopted from: https://github.com/RedHatQE/ocp-gi
 oc process -f rahti-gitlab-runner-template.yaml \
 -p NAME="some-name" \
 -p GITLAB_HOST="gitlab.ci.csc.fi" \
--p REGISTRATION_TOKEN="$(echo -n some_token | base64)" \
+-p REGISTRATION_TOKEN="$(echo -n <some_token> | base64)" \
 -p GITLAB_RUNNER_VERSION="v14.9.1" \
 -p TLS_CA_CERT="$(openssl s_client -showcerts -connect gitlab.ci.csc.fi:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | base64)" \
 -p TEMPLATE_CONFIG_FILE="$(cat config.template.toml)" | oc create -f -
 ```
+
+**Note:** Replace <some_token> with a token obtained in **Settings** > **CI/CD**. Otherwise the Pod will enter in _crashloopbackoff_ and never start.
 
 3. Clean up after usage
 ```sh
