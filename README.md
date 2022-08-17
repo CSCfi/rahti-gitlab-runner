@@ -35,7 +35,7 @@ oc process -f rahti-gitlab-runner-template.yaml \
 
 3. Clean up after usage
 ```sh
-oc delete secret,cm,sa,rolebindings,bc,is,deployment -l app=some_name
+oc delete secret,cm,sa,rolebindings,bc,is,deployment -l app=some-name
 ```
 
 ## Contents
