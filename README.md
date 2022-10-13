@@ -29,7 +29,7 @@ oc process -f rahti-gitlab-runner-template.yaml \
 -p GITLAB_HOST="gitlab.ci.csc.fi" \
 -p REGISTRATION_TOKEN="$(echo -n <some_token> | base64)" \
 -p GITLAB_RUNNER_VERSION="v14.9.1" \
--p TLS_CA_CERT="$(openssl s_client -showcerts -connect gitlab.ci.csc.fi:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | base64)" \
+-p TLS_CA_CERT="$(openssl s_client -showcerts -connect gitlab.ci.csc.fi:443 -servername gitlab.ci.csc.fi < /dev/null 2>/dev/null | openssl x509 -outform PEM | base64)" \
 -p TEMPLATE_CONFIG_FILE="$(cat config.template.toml)" | oc create -f -
 ```
 
